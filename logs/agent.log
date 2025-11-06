@@ -1918,3 +1918,5 @@ ValueError: Invalid API response format
 2025-11-06 21:38:26,747 - watchfiles.main - INFO - 1 change detected
 2025-11-06 21:38:38,197 - watchfiles.main - INFO - 1 change detected
 2025-11-06 21:38:46,567 - watchfiles.main - INFO - 1 change detected
+2025-11-06 21:38:54,153 - watchfiles.main - INFO - 4 changes detected
+2025-11-06 21:39:04,394 - watchfiles.main - INFO - 60 changes detected
