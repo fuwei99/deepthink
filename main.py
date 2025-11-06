@@ -14,12 +14,12 @@ from typing import List, Dict, Any, AsyncGenerator
 
 # --- Logger Configuration ---
 # Create run_logs directory if it doesn't exist (at project root)
-if not os.path.exists("webui/run_logs"):
-    os.makedirs("webui/run_logs")
+if not os.path.exists("run_logs"):
+    os.makedirs("run_logs")
 
 # Create output directory if it doesn't exist (at project root)
-if not os.path.exists("webui/output"):
-    os.makedirs("webui/output")
+if not os.path.exists("output"):
+    os.makedirs("output")
 
 # We'll create a new log file for each run with timestamp
 # The actual log file will be created in agent_solver function
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 # --- Configuration ---
-CONFIG_FILE = "webui/config.json"
+CONFIG_FILE = "config.json"
 
 app = FastAPI()
 
