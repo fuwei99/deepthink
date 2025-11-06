@@ -384,6 +384,7 @@ async def agent_solver(
         yield json.dumps({"type": "retry_status", "content": status_message})
 
     # Step 1: Initial Exploration
+    yield json.dumps({"type": "status", "content": "Received request. Starting agent..."}) # Add this line
     yield json.dumps({"type": "status", "content": "Phase 1: Initial solution generation..."})
     logger.info("Phase 1: Initial solution generation...")
     messages = build_request_payload(
@@ -396,21 +397,7 @@ async def agent_solver(
     async def collect_retry_callback(message):
         retry_messages.append(message)
     
-    # Start the API request in the background
-    api_task_1 = asyncio.create_task(
-        send_api_request_async(client, model_name, messages, retry_callback=collect_retry_callback)
-    )
-
-    # Send heartbeats while waiting for the API call to complete
-    while not api_task_1.done():
-        try:
-            # Wait for 15 seconds or until the task completes
-            await asyncio.wait_for(asyncio.shield(api_task_1), timeout=15.0)
-        except asyncio.TimeoutError:
-            # If it times out, the task is still running, so send a heartbeat
-            yield json.dumps({"type": "heartbeat", "content": "Generating initial solution..."})
-
-    response1 = api_task_1.result() # Get the result of the completed task
+    response1 = await send_api_request_async(client, model_name, messages, retry_callback=collect_retry_callback)
     
     # Yield any retry messages that were collected
     for retry_msg in retry_messages:
@@ -428,19 +415,7 @@ async def agent_solver(
     improvement_messages.append({"role": "assistant", "content": output1})
     improvement_messages.append({"role": "user", "content": self_improvement_prompt})
     
-    # Start the API request in the background
-    api_task_2 = asyncio.create_task(
-        send_api_request_async(client, model_name, improvement_messages, retry_callback=collect_retry_callback)
-    )
-
-    # Send heartbeats while waiting for the API call to complete
-    while not api_task_2.done():
-        try:
-            await asyncio.wait_for(asyncio.shield(api_task_2), timeout=15.0)
-        except asyncio.TimeoutError:
-            yield json.dumps({"type": "heartbeat", "content": "Refining solution..."})
-
-    response2 = api_task_2.result()
+    response2 = await send_api_request_async(client, model_name, improvement_messages, retry_callback=collect_retry_callback)
     
     # Yield any retry messages that were collected
     for retry_msg in retry_messages:
@@ -465,19 +440,7 @@ async def agent_solver(
         #     yield json.dumps({"type": "status", "content": "Solution does not claim to be complete. Stopping."})
         #     break
 
-        # Start the verification task in the background
-        verify_task = asyncio.create_task(
-             verify_solution_async(client, model_name, problem_statement, solution, retry_callback=collect_retry_callback)
-        )
-
-        # Send heartbeats while waiting for verification to complete
-        while not verify_task.done():
-            try:
-                await asyncio.wait_for(asyncio.shield(verify_task), timeout=15.0)
-            except asyncio.TimeoutError:
-                yield json.dumps({"type": "heartbeat", "content": f"Verifying solution (cycle {i + 1})..."})
-        
-        verify, good_verify = verify_task.result()
+        verify, good_verify = await verify_solution_async(client, model_name, problem_statement, solution, retry_callback=collect_retry_callback)
         
         # Yield any retry messages that were collected during verification
         for retry_msg in retry_messages:
@@ -509,19 +472,7 @@ async def agent_solver(
             correction_messages.append({"role": "assistant", "content": solution})
             correction_messages.append({"role": "user", "content": correction_prompt + "\n\n" + verify})
 
-            # Start the correction API request in the background
-            correction_task = asyncio.create_task(
-                send_api_request_async(client, model_name, correction_messages, retry_callback=collect_retry_callback)
-            )
-
-            # Send heartbeats while waiting for the API call to complete
-            while not correction_task.done():
-                try:
-                    await asyncio.wait_for(asyncio.shield(correction_task), timeout=15.0)
-                except asyncio.TimeoutError:
-                    yield json.dumps({"type": "heartbeat", "content": f"Attempting to correct solution (cycle {i + 1})..."})
-
-            response_corrected = correction_task.result()
+            response_corrected = await send_api_request_async(client, model_name, correction_messages, retry_callback=collect_retry_callback)
             
             # Yield any retry messages that were collected during correction
             for retry_msg in retry_messages:
