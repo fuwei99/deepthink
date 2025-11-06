@@ -225,9 +225,9 @@ async def send_api_request_async(client: AsyncOpenAI, model_name: str, messages:
                 logger.info(f"Retrying in {wait_time} seconds...")
                 if retry_callback:
                     await retry_callback(f"API error ({e.status_code}). Retrying in {wait_time}s... (attempt {attempt + 2}/{max_retries})")
-                    await asyncio.sleep(wait_time)
-                    continue
-                else:
+                await asyncio.sleep(wait_time)
+                continue
+            else:
                 # Don't retry on client errors (4xx except 429) or after max retries
                 logger.error(f"API request failed for {model_name} after {attempt + 1} attempts: {e.status_code} - {e.message}")
                 raise HTTPException(status_code=500, detail=f"API Request Failed: {e.message}")
