@@ -286,6 +286,15 @@ document.addEventListener('DOMContentLoaded', function () {
                     // Show error
                     cardBody.innerHTML = `<div class="alert alert-danger">Error: ${data.content}</div>`;
                     break;
+
+                case 'heartbeat':
+                    // You can optionally update the UI to show that work is ongoing
+                    console.log('Heartbeat received:', data.content);
+                    const statusElement = cardBody.querySelector('.status-update');
+                    if (statusElement) {
+                        statusElement.innerHTML = `<i class="fas fa-spinner fa-spin"></i> ${data.content || 'Processing...'}`;
+                    }
+                    break;
             }
         }
     });

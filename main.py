@@ -183,7 +183,6 @@ async def send_api_request_async(client: AsyncOpenAI, model_name: str, messages:
     for attempt in range(max_retries):
         try:
             logger.info(f"Sending API request to model: {model_name} (attempt {attempt + 1}/{max_retries})")
-            logger.debug(f"Request payload: {len(messages)} messages, model: {model_name}")
             
             # Special handling for Gemini models if needed (from agent_openaiSDK.py)
             extra_args = {}
@@ -198,7 +197,6 @@ async def send_api_request_async(client: AsyncOpenAI, model_name: str, messages:
                         }
                     }
                 }
-                logger.info(f"Using Gemini-specific configuration")
             
             response = await client.chat.completions.create(
                 model=model_name,
@@ -207,7 +205,6 @@ async def send_api_request_async(client: AsyncOpenAI, model_name: str, messages:
                 top_p=1.0,
                 **extra_args
             )
-            logger.debug(f"Received response from API for model: {model_name}")
             
             # Check if the response has valid content
             if response.choices is None or len(response.choices) == 0:
@@ -228,9 +225,9 @@ async def send_api_request_async(client: AsyncOpenAI, model_name: str, messages:
                 logger.info(f"Retrying in {wait_time} seconds...")
                 if retry_callback:
                     await retry_callback(f"API error ({e.status_code}). Retrying in {wait_time}s... (attempt {attempt + 2}/{max_retries})")
-                await asyncio.sleep(wait_time)
-                continue
-            else:
+                    await asyncio.sleep(wait_time)
+                    continue
+                else:
                 # Don't retry on client errors (4xx except 429) or after max retries
                 logger.error(f"API request failed for {model_name} after {attempt + 1} attempts: {e.status_code} - {e.message}")
                 raise HTTPException(status_code=500, detail=f"API Request Failed: {e.message}")
@@ -251,23 +248,18 @@ async def send_api_request_async(client: AsyncOpenAI, model_name: str, messages:
                 raise HTTPException(status_code=500, detail=f"API Request Failed: {e}")
                 
         except Exception as e:
-            error_type = type(e).__name__
-            error_msg = str(e)
-            logger.warning(f"Unexpected error ({error_type}) for {model_name} (attempt {attempt + 1}/{max_retries}): {error_msg}")
+            logger.warning(f"Unexpected error for {model_name} (attempt {attempt + 1}/{max_retries}): {e}")
             
-            # Check for timeout or connection errors
-            is_retryable = any(keyword in error_msg.lower() for keyword in ['timeout', 'connection', 'network', 'timed out'])
-            
-            if attempt < max_retries - 1 and is_retryable:
+            if attempt < max_retries - 1:
                 wait_time = 2 ** attempt
                 logger.info(f"Retrying in {wait_time} seconds...")
                 if retry_callback:
-                    await retry_callback(f"{error_type}: {error_msg}. Retrying in {wait_time}s... (attempt {attempt + 2}/{max_retries})")
+                    await retry_callback(f"Unexpected error occurred. Retrying in {wait_time}s... (attempt {attempt + 2}/{max_retries})")
                 await asyncio.sleep(wait_time)
                 continue
             else:
-                logger.error(f"API request failed for {model_name} after {max_retries} attempts: {error_type} - {error_msg}", exc_info=True)
-                raise HTTPException(status_code=500, detail=f"API Request Failed ({error_type}): {error_msg}")
+                logger.error(f"API request failed for {model_name} after {max_retries} attempts: {e}")
+                raise HTTPException(status_code=500, detail=f"API Request Failed: {e}")
     
     # This should never be reached, but just in case
     raise HTTPException(status_code=500, detail=f"API Request Failed: Maximum retries exceeded")
@@ -404,7 +396,21 @@ async def agent_solver(
     async def collect_retry_callback(message):
         retry_messages.append(message)
     
-    response1 = await send_api_request_async(client, model_name, messages, retry_callback=collect_retry_callback)
+    # Start the API request in the background
+    api_task_1 = asyncio.create_task(
+        send_api_request_async(client, model_name, messages, retry_callback=collect_retry_callback)
+    )
+
+    # Send heartbeats while waiting for the API call to complete
+    while not api_task_1.done():
+        try:
+            # Wait for 15 seconds or until the task completes
+            await asyncio.wait_for(asyncio.shield(api_task_1), timeout=15.0)
+        except asyncio.TimeoutError:
+            # If it times out, the task is still running, so send a heartbeat
+            yield json.dumps({"type": "heartbeat", "content": "Generating initial solution..."})
+
+    response1 = api_task_1.result() # Get the result of the completed task
     
     # Yield any retry messages that were collected
     for retry_msg in retry_messages:
@@ -422,7 +428,19 @@ async def agent_solver(
     improvement_messages.append({"role": "assistant", "content": output1})
     improvement_messages.append({"role": "user", "content": self_improvement_prompt})
     
-    response2 = await send_api_request_async(client, model_name, improvement_messages, retry_callback=collect_retry_callback)
+    # Start the API request in the background
+    api_task_2 = asyncio.create_task(
+        send_api_request_async(client, model_name, improvement_messages, retry_callback=collect_retry_callback)
+    )
+
+    # Send heartbeats while waiting for the API call to complete
+    while not api_task_2.done():
+        try:
+            await asyncio.wait_for(asyncio.shield(api_task_2), timeout=15.0)
+        except asyncio.TimeoutError:
+            yield json.dumps({"type": "heartbeat", "content": "Refining solution..."})
+
+    response2 = api_task_2.result()
     
     # Yield any retry messages that were collected
     for retry_msg in retry_messages:
@@ -447,7 +465,19 @@ async def agent_solver(
         #     yield json.dumps({"type": "status", "content": "Solution does not claim to be complete. Stopping."})
         #     break
 
-        verify, good_verify = await verify_solution_async(client, model_name, problem_statement, solution, retry_callback=collect_retry_callback)
+        # Start the verification task in the background
+        verify_task = asyncio.create_task(
+             verify_solution_async(client, model_name, problem_statement, solution, retry_callback=collect_retry_callback)
+        )
+
+        # Send heartbeats while waiting for verification to complete
+        while not verify_task.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(verify_task), timeout=15.0)
+            except asyncio.TimeoutError:
+                yield json.dumps({"type": "heartbeat", "content": f"Verifying solution (cycle {i + 1})..."})
+        
+        verify, good_verify = verify_task.result()
         
         # Yield any retry messages that were collected during verification
         for retry_msg in retry_messages:
@@ -479,7 +509,19 @@ async def agent_solver(
             correction_messages.append({"role": "assistant", "content": solution})
             correction_messages.append({"role": "user", "content": correction_prompt + "\n\n" + verify})
 
-            response_corrected = await send_api_request_async(client, model_name, correction_messages, retry_callback=collect_retry_callback)
+            # Start the correction API request in the background
+            correction_task = asyncio.create_task(
+                send_api_request_async(client, model_name, correction_messages, retry_callback=collect_retry_callback)
+            )
+
+            # Send heartbeats while waiting for the API call to complete
+            while not correction_task.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(correction_task), timeout=15.0)
+                except asyncio.TimeoutError:
+                    yield json.dumps({"type": "heartbeat", "content": f"Attempting to correct solution (cycle {i + 1})..."})
+
+            response_corrected = correction_task.result()
             
             # Yield any retry messages that were collected during correction
             for retry_msg in retry_messages:
@@ -652,9 +694,8 @@ async def solve_problem(request: Request):
     if not base_url or not api_key:
         raise HTTPException(status_code=400, detail="API settings are not configured.")
 
-    # Set a very long timeout for the potentially long-running agent solver
-    # Gemini models with thinking can take a very long time (up to 30 minutes)
-    client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=1800.0)
+    # Set a long timeout for the potentially long-running agent solver
+    client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=600.0)
     
     # We will only run the agent on the first selected model.
     model_to_run = models_to_run[0]
