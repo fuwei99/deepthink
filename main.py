@@ -38,9 +38,11 @@ CONFIG_FILE = "webui/config.json"
 
 app = FastAPI()
 
-# Mount static files & templates
-app.mount("/static", StaticFiles(directory="webui/static"), name="static")
-templates = Jinja2Templates(directory="webui/templates")
+# Mount static files & templates using relative paths
+# This ensures it works both locally and inside the Docker container
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
+
 
 # --- Prompts (from agent_openaiSDK.py) ---
 def create_system_prompt(language: str) -> str:
@@ -223,9 +225,9 @@ async def send_api_request_async(client: AsyncOpenAI, model_name: str, messages:
                 logger.info(f"Retrying in {wait_time} seconds...")
                 if retry_callback:
                     await retry_callback(f"API error ({e.status_code}). Retrying in {wait_time}s... (attempt {attempt + 2}/{max_retries})")
-                await asyncio.sleep(wait_time)
-                continue
-            else:
+                    await asyncio.sleep(wait_time)
+                    continue
+                else:
                 # Don't retry on client errors (4xx except 429) or after max retries
                 logger.error(f"API request failed for {model_name} after {attempt + 1} attempts: {e.status_code} - {e.message}")
                 raise HTTPException(status_code=500, detail=f"API Request Failed: {e.message}")
@@ -362,7 +364,7 @@ async def agent_solver(
     # Create a simple hash from problem statement for identification
     problem_hash = abs(hash(problem_statement[:50])) % 10000
     log_filename = f"solution_{problem_hash:04d}_agent_{timestamp}.log"
-    log_filepath = os.path.join("webui/run_logs", log_filename)
+    log_filepath = os.path.join("run_logs", log_filename)
     
     # Add file handler for this run
     file_handler = logging.FileHandler(log_filepath, encoding='utf-8')
@@ -487,7 +489,7 @@ async def agent_solver(
     if solution:
         try:
             output_filename = f"solution_{problem_hash:04d}_{timestamp}.md"
-            output_filepath = os.path.join("webui/output", output_filename)
+            output_filepath = os.path.join("output", output_filename)
             
             # Create markdown content
             md_content = f"""# Solution Report
@@ -517,7 +519,7 @@ async def agent_solver(
                 f.write(md_content)
             
             logger.info(f"Solution saved to: {output_filepath}")
-            yield json.dumps({"type": "status", "content": f"Solution saved to: {output_filepath.replace('webui/', '')}"})
+            yield json.dumps({"type": "status", "content": f"Solution saved to: {output_filepath}"})
         except Exception as e:
             logger.error(f"Failed to save solution to output directory: {e}")
     
@@ -526,12 +528,38 @@ async def agent_solver(
     file_handler.close()
 
 
+# --- Keep-Alive Task ---
+async def keep_alive():
+    """A background task to prevent the service from sleeping."""
+    while True:
+        await asyncio.sleep(50 * 60) # Sleep for 50 minutes
+        logger.info("Keep-alive: Waking up to perform a routine check.")
+        try:
+            # This serves as a lightweight API call to keep the service active
+            settings = load_settings()
+            base_url = settings.get("base_url")
+            api_key = settings.get("api_key")
+            if base_url and api_key:
+                client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=60.0)
+                await client.models.list()
+                logger.info("Keep-alive: Successfully pinged the model API.")
+            else:
+                logger.info("Keep-alive: API settings not configured, skipping API ping.")
+        except Exception as e:
+            logger.warning(f"Keep-alive: Routine check failed with error: {e}")
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("Application startup: Starting keep-alive background task.")
+    asyncio.create_task(keep_alive())
+
+
 # --- API Endpoints ---
 
 @app.get("/api/problems", response_class=JSONResponse)
 async def get_problems():
     """Fetches the list of available problem files from the problems directory."""
-    problem_dir = "webui/problems"
+    problem_dir = "problems"
     if not os.path.exists(problem_dir):
         return []
     try:
@@ -548,7 +576,7 @@ async def get_problem_content(filename: str):
     if ".." in filename or filename.startswith("/"):
         raise HTTPException(status_code=400, detail="Invalid filename.")
         
-    problem_filepath = os.path.join("webui/problems", filename)
+    problem_filepath = os.path.join("problems", filename)
     if not os.path.exists(problem_filepath):
         raise HTTPException(status_code=404, detail="Problem file not found.")
     
@@ -645,5 +673,5 @@ async def read_root(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 if __name__ == "__main__":
-    # Note: The port is now hardcoded to 5012 as requested.
-    uvicorn.run("main:app", host="127.0.0.1", port=5012, reload=True)
+    # Note: The port is now hardcoded to 7860 as requested for HF Spaces.
+    uvicorn.run("main:app", host="127.0.0.1", port=7860, reload=True)

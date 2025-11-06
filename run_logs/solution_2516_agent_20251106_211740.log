@@ -8,3 +8,6 @@
 2025-11-06 21:23:36,708 - main - WARNING - Unexpected error for GeminiCLI/gemini-2.5-pro (attempt 2/3): Connection error.
 2025-11-06 21:23:36,708 - main - INFO - Retrying in 2 seconds...
 2025-11-06 21:23:38,703 - main - INFO - Sending API request to model: GeminiCLI/gemini-2.5-pro (attempt 3/3)
+2025-11-06 21:26:54,615 - main - WARNING - Unexpected error for GeminiCLI/gemini-2.5-pro (attempt 3/3): Connection error.
+2025-11-06 21:26:54,618 - main - ERROR - API request failed for GeminiCLI/gemini-2.5-pro after 3 attempts: Connection error.
+2025-11-06 21:26:54,620 - main - ERROR - A handled HTTP error occurred during agent execution: API Request Failed: Connection error.

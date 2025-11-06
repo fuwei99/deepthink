@@ -13,9 +13,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # 5. Expose the port the app runs on
-EXPOSE 5012
+EXPOSE 7860
 
 # 6. Define the command to run the application
 # Use 0.0.0.0 to make it accessible from outside the container
 # Omit --reload for a production-like environment
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "5012"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]
