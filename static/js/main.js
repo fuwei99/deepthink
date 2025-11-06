@@ -115,7 +115,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 'Content-Type': 'application/json',
                 'Accept': 'text/event-stream'
             },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
+            keepalive: true
         }).then(response => {
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -285,15 +286,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 case 'error':
                     // Show error
                     cardBody.innerHTML = `<div class="alert alert-danger">Error: ${data.content}</div>`;
-                    break;
-
-                case 'heartbeat':
-                    // You can optionally update the UI to show that work is ongoing
-                    console.log('Heartbeat received:', data.content);
-                    const statusElement = cardBody.querySelector('.status-update');
-                    if (statusElement) {
-                        statusElement.innerHTML = `<i class="fas fa-spinner fa-spin"></i> ${data.content || 'Processing...'}`;
-                    }
                     break;
             }
         }
