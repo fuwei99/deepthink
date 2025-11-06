@@ -183,6 +183,7 @@ async def send_api_request_async(client: AsyncOpenAI, model_name: str, messages:
     for attempt in range(max_retries):
         try:
             logger.info(f"Sending API request to model: {model_name} (attempt {attempt + 1}/{max_retries})")
+            logger.debug(f"Request payload: {len(messages)} messages, model: {model_name}")
             
             # Special handling for Gemini models if needed (from agent_openaiSDK.py)
             extra_args = {}
@@ -197,6 +198,7 @@ async def send_api_request_async(client: AsyncOpenAI, model_name: str, messages:
                         }
                     }
                 }
+                logger.info(f"Using Gemini-specific configuration")
             
             response = await client.chat.completions.create(
                 model=model_name,
@@ -205,6 +207,7 @@ async def send_api_request_async(client: AsyncOpenAI, model_name: str, messages:
                 top_p=1.0,
                 **extra_args
             )
+            logger.debug(f"Received response from API for model: {model_name}")
             
             # Check if the response has valid content
             if response.choices is None or len(response.choices) == 0:
@@ -248,18 +251,23 @@ async def send_api_request_async(client: AsyncOpenAI, model_name: str, messages:
                 raise HTTPException(status_code=500, detail=f"API Request Failed: {e}")
                 
         except Exception as e:
-            logger.warning(f"Unexpected error for {model_name} (attempt {attempt + 1}/{max_retries}): {e}")
+            error_type = type(e).__name__
+            error_msg = str(e)
+            logger.warning(f"Unexpected error ({error_type}) for {model_name} (attempt {attempt + 1}/{max_retries}): {error_msg}")
             
-            if attempt < max_retries - 1:
+            # Check for timeout or connection errors
+            is_retryable = any(keyword in error_msg.lower() for keyword in ['timeout', 'connection', 'network', 'timed out'])
+            
+            if attempt < max_retries - 1 and is_retryable:
                 wait_time = 2 ** attempt
                 logger.info(f"Retrying in {wait_time} seconds...")
                 if retry_callback:
-                    await retry_callback(f"Unexpected error occurred. Retrying in {wait_time}s... (attempt {attempt + 2}/{max_retries})")
+                    await retry_callback(f"{error_type}: {error_msg}. Retrying in {wait_time}s... (attempt {attempt + 2}/{max_retries})")
                 await asyncio.sleep(wait_time)
                 continue
             else:
-                logger.error(f"API request failed for {model_name} after {max_retries} attempts: {e}")
-                raise HTTPException(status_code=500, detail=f"API Request Failed: {e}")
+                logger.error(f"API request failed for {model_name} after {max_retries} attempts: {error_type} - {error_msg}", exc_info=True)
+                raise HTTPException(status_code=500, detail=f"API Request Failed ({error_type}): {error_msg}")
     
     # This should never be reached, but just in case
     raise HTTPException(status_code=500, detail=f"API Request Failed: Maximum retries exceeded")
@@ -644,8 +652,9 @@ async def solve_problem(request: Request):
     if not base_url or not api_key:
         raise HTTPException(status_code=400, detail="API settings are not configured.")
 
-    # Set a long timeout for the potentially long-running agent solver
-    client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=600.0)
+    # Set a very long timeout for the potentially long-running agent solver
+    # Gemini models with thinking can take a very long time (up to 30 minutes)
+    client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=1800.0)
     
     # We will only run the agent on the first selected model.
     model_to_run = models_to_run[0]
