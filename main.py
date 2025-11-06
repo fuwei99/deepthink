@@ -384,7 +384,6 @@ async def agent_solver(
         yield json.dumps({"type": "retry_status", "content": status_message})
 
     # Step 1: Initial Exploration
-    yield json.dumps({"type": "status", "content": "Received request. Starting agent..."}) # Add this line
     yield json.dumps({"type": "status", "content": "Phase 1: Initial solution generation..."})
     logger.info("Phase 1: Initial solution generation...")
     messages = build_request_payload(
@@ -675,4 +674,4 @@ async def read_root(request: Request):
 
 if __name__ == "__main__":
     # Note: The port is now hardcoded to 7860 as requested for HF Spaces.
-    uvicorn.run("main:app", host="127.0.0.1", port=7860, reload=True)
+    uvicorn.run("main:app", host="127.0.0.1", port=7860, reload=True, timeout_keep_alive=300)
