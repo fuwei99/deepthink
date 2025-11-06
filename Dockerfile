@@ -18,4 +18,5 @@ EXPOSE 7860
 # 6. Define the command to run the application
 # Use 0.0.0.0 to make it accessible from outside the container
 # Omit --reload for a production-like environment
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]
+# Add a longer keep-alive timeout to prevent proxies from closing the connection
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860", "--timeout-keep-alive", "300"]
